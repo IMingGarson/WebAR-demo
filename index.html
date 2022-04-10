@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="./css/style.css">
+<script src="https://threejs.org/build/three.js"></script>
+<script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
+<!-- <script src="https://threejs.org/examples/js/loaders/OBJLoader.js"></script> -->
+<script src="https://threejs.org/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://threejs.org/examples/js/loaders/DRACOLoader.js"></script>
+<!-- Enable Webcam -->
+<script src="./workers/ThreeJSWorker.js"></script>
+<script type="text/javascript" src="https://unpkg.com/webcam-easy/dist/webcam-easy.min.js"></script>
+<script type="text/javascript">
+
+    let camera;
+    let renderer;
+    let scene;
+    let target;
+    let mixer;
+    let light;
+    let control;
+    let webcamElement, canvasElement, webcam;
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        mixer.update(delta);
+        renderer.render(scene, camera);
+    }
+
+    function init() {
+        const objectSection = document.getElementById('center-object');
+
+        scene = new THREE.Scene();
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        objectSection.appendChild(renderer.domElement);
+
+        camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 1000 );
+        camera.position.z = 75;
+
+        light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(0, 0, 50);
+        scene.add(light);
+
+        // Orbit
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0.5, 0);
+        controls.update();
+        controls.enablePan = false;
+        controls.enableDamping = false;
+
+        const axesHelper = new THREE.AxesHelper(10);
+        const colors = axesHelper.geometry.attributes.color;
+        colors.setXYZ( 0, 1, 0, 0 ); // index, R, G, B
+        colors.setXYZ( 1, 1, 0, 0 ); // red -> x
+        colors.setXYZ( 2, 0, 1, 0 );
+        colors.setXYZ( 3, 0, 1, 0 ); // green -> y
+        colors.setXYZ( 4, 0, 0, 1 );
+        colors.setXYZ( 5, 0, 0, 1 ); // blue -> z
+        // 座標軸
+        scene.add( axesHelper );
+
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://threejs.org/examples/js/libs/draco/gltf/');
+
+        const objLoader = new THREE.GLTFLoader();
+        objLoader.setDRACOLoader(dracoLoader);
+        objLoader.load('./models/source/Bengal.glb', (gltf) => {;
+            scene.add(gltf.scene);
+            gltf.scene.scale.set( 35, 35, 35);
+            target = gltf.scene.children[0];
+            target.rotation.x = Math.PI / 8; // 同整成從上方俯瞰的角度
+            mixer = new THREE.AnimationMixer(target);
+            mixer.clipAction(gltf.animations[0]).play();
+            animate();
+        },
+        (xhr) => {
+            return false;
+        },
+        (err) => {
+            return false;
+        })
+    }
+
+    window.onload = function() {
+        init();
+        // webcamElement = document.getElementById('webcam');
+        // canvasElement = document.getElementById('canvas');
+        // webcam = new Webcam(webcamElement, 'user', canvasElement);
+        // webcam.start().then(result =>{
+        //     console.log("webcam started");
+        // }).catch(err => {
+        //     console.log(err);
+        // });
+    }
+
+    function startWebcam() {
+        webcam.start();
+    }
+
+    function stopWebcam() {
+        webcam.stop();
+    }
+
+</script>
+</script>
+</head>
+<body>
+<div>
+    <div class="center">
+        <button onclick="startWebcam();">Start</button>
+        <button onclick="stopWebcam();">Stop</button>
+        <div id="center-object" class="center-object"></div>
+    </div>
+    <div class="center">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="canvas" class="d-none"></canvas>
+    </div>
+</div>
+</body>
+</html>
