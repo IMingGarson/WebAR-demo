@@ -9,8 +9,23 @@
 <script src="https://threejs.org/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://threejs.org/examples/js/loaders/DRACOLoader.js"></script>
 <!-- Enable Webcam -->
-<script src="./workers/ThreeJSWorker.js"></script>
-<script type="text/javascript" src="https://unpkg.com/webcam-easy/dist/webcam-easy.min.js"></script>
+<!-- <script type="text/javascript" src="https://unpkg.com/webcam-easy/dist/webcam-easy.min.js"></script> -->
+</head>
+<body>
+<div>
+    <button id="demo">start</button>
+    <div class="center">
+        <!-- <button onclick="startWebcam();">Start</button>
+        <button onclick="stopWebcam();">Stop</button> -->
+        <p>leftToRight:</p> <p id="leftToRight"></p>
+        <p>frontToBack:</p> <p id="frontToBack"></p>
+        <div id="center-object" class="center-object"></div>
+    </div>
+    <div class="center">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="canvas" class="d-none"></canvas>
+    </div>
+</div>
 <script type="text/javascript">
 
     let camera;
@@ -19,17 +34,23 @@
     let target;
     let mixer;
     let light;
-    let control;
+    let controls;
+    let orientControls;
+    let alpha = 0;
+    let beta = 0;
+    let gamma = 0;
+    let axesHelper;
     let webcamElement, canvasElement, webcam;
 
+    // alpha: rotation around z-axis
+    let upToDown = 0;
+    // gamma: left to right
+    let leftToRight = 0;
+    // beta: front back motion
+    let frontToBack = 90;
+    let orientation = [];
+    let worker = null;
     const clock = new THREE.Clock();
-
-    function animate() {
-        requestAnimationFrame(animate);
-        const delta = clock.getDelta();
-        mixer.update(delta);
-        renderer.render(scene, camera);
-    }
 
     function init() {
         const objectSection = document.getElementById('center-object');
@@ -39,9 +60,11 @@
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.outputEncoding = THREE.sRGBEncoding;
+        
         objectSection.appendChild(renderer.domElement);
 
-        camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 1000 );
+        camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 1000 );
+        camera.up.set(0, 0, 1);
         camera.position.z = 75;
 
         light = new THREE.DirectionalLight(0xffffff, 1);
@@ -49,13 +72,13 @@
         scene.add(light);
 
         // Orbit
-        controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.target.set(0, 0.5, 0);
-        controls.update();
-        controls.enablePan = false;
-        controls.enableDamping = false;
+        // let controls = new THREE.OrbitControls(camera, renderer.domElement);
+        // controls.target.set(0, 0.5, 0);
+        // controls.update();
+        // controls.enablePan = false;
+        // controls.enableDamping = false;
 
-        const axesHelper = new THREE.AxesHelper(10);
+        axesHelper = new THREE.AxesHelper(10);
         const colors = axesHelper.geometry.attributes.color;
         colors.setXYZ( 0, 1, 0, 0 ); // index, R, G, B
         colors.setXYZ( 1, 1, 0, 0 ); // red -> x
@@ -71,11 +94,10 @@
 
         const objLoader = new THREE.GLTFLoader();
         objLoader.setDRACOLoader(dracoLoader);
-        objLoader.load('./models/source/Bengal.glb', (gltf) => {;
+        objLoader.load('./models/source/Bengal.glb', (gltf) => {
             scene.add(gltf.scene);
             gltf.scene.scale.set( 35, 35, 35);
             target = gltf.scene.children[0];
-            target.rotation.x = Math.PI / 8; // 同整成從上方俯瞰的角度
             mixer = new THREE.AnimationMixer(target);
             mixer.clipAction(gltf.animations[0]).play();
             animate();
@@ -89,15 +111,64 @@
     }
 
     window.onload = function() {
-        init();
         // webcamElement = document.getElementById('webcam');
         // canvasElement = document.getElementById('canvas');
         // webcam = new Webcam(webcamElement, 'user', canvasElement);
+        // webcam.flip();
         // webcam.start().then(result =>{
         //     console.log("webcam started");
         // }).catch(err => {
         //     console.log(err);
         // });
+        let is_running = false;
+        const btn = document.getElementById('demo');
+        btn.addEventListener("click", function(e) {
+            e.preventDefault();
+            // if (DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+            //     DeviceMotionEvent.requestPermission();
+            // }
+            if (is_running) {
+                window.removeEventListener("deviceorientation", handleOrientation);
+                btn.innerHTML = 'start';
+            } else {
+                window.addEventListener("deviceorientation", handleOrientation);
+                btn.innerHTML = 'stop';
+                if (worker) {
+                    worker.terminate();
+                }
+            }
+            is_running = !is_running;
+        });
+        init();
+    }
+
+    function handleOrientation(event) {
+        if (Object.keys(orientation).length == 0 && !!leftToRight) {
+            orientation = {
+                preY: leftToRight,
+                curY: event.gamma
+            };
+        } else {
+            worker = new Worker('./workers/ThreeJSWorker.js');
+            console.log('orientation', orientation);
+            worker.postMessage(orientation);
+            worker.addEventListener('message', function(e) {
+                // frontToBack = e.data.x;
+                leftToRight = e.data.curY;
+                console.log('worker said: ', e.data);
+            }, false);
+            orientation = {};
+        }
+        // alpha: rotation around z-axis
+        upToDown = event.alpha;
+        // gamma: left to right
+        leftToRight = event.gamma;
+        // beta: front back motion
+        frontToBack = event.beta;
+    }
+
+    function getRandomArbitrary(min, max) {
+        return Math.random() * (max - min) + min;
     }
 
     function startWebcam() {
@@ -108,20 +179,35 @@
         webcam.stop();
     }
 
+    function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        mixer.update(delta);
+
+        camera.aspect = window.innerWidth / window.innerHeight;
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        let yRotation = leftToRight * Math.PI / 180;
+        axesHelper.rotation.y = yRotation;
+        target.rotation.y = yRotation;
+
+        if (frontToBack > 80) {
+            frontToBack = 80;
+        } else if (frontToBack < -80) {
+            frontToBack = -80;
+        }
+        let xRotation = (90 - frontToBack) * Math.PI / 180;
+        axesHelper.rotation.x = xRotation;
+        target.rotation.x = xRotation;
+        
+        camera.updateProjectionMatrix();
+
+        renderer.render(scene, camera);
+        
+        document.getElementById('leftToRight').innerHTML = yRotation;
+        document.getElementById('frontToBack').innerHTML = xRotation;
+    }
 </script>
-</script>
-</head>
-<body>
-<div>
-    <div class="center">
-        <button onclick="startWebcam();">Start</button>
-        <button onclick="stopWebcam();">Stop</button>
-        <div id="center-object" class="center-object"></div>
-    </div>
-    <div class="center">
-        <video id="webcam" autoplay playsinline></video>
-        <canvas id="canvas" class="d-none"></canvas>
-    </div>
-</div>
 </body>
 </html>
